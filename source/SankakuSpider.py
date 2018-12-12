@@ -1,7 +1,7 @@
 # Copyright: Copyright(c) 2018
-# Created on 2018 - 12 - 7
+# Created on 2018 - 12 - 13
 # Author: HowsonLiu
-# Version 1.3
+# Version 1.4
 # Title: Sankaku爬虫
 
 import requests
@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor   # 线程池
 import datetime
 import configparser     # ini解析
 import threading        # 锁
+import time             # sleep
 
 home_url = 'https://chan.sankakucomplex.com'
 save_path = r'D:\SankakuImage'      # 默认保存路径
@@ -73,7 +74,7 @@ def CrawlSingleImage(target_url, img_id):
         skip_num += 1
         print('第 ' + str(index) + ' 张图片( ' + img_id + ' )已存在! 跳过')
         return -2
-
+    time.sleep(2)                   # 看下会不会被拒绝
     try:
         target_html = requests.get(target_url, headers=headers)     # 请求图片网页
         target_soup = BeautifulSoup(target_html.text, 'lxml')       # 解析
