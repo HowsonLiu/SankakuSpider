@@ -107,26 +107,26 @@ def CrawlSingleImage(target_url, img_id):
     print('第 ' + str(index) + ' 张图片( ' + img_id + ' )爬取成功')
     return 0
 
-#  遍历网站第一页, 对每张图片进行爬取 1.0
-#  target_url为string, 如'https://chan.sankakucomplex.com/?tags=tony'
-def ForeachPageAndCrawl(target_url):
+#  仅仅对target_url爬取一页, 不做换页处理
+#  target_url为string, 如'https://chan.sankakucomplex.com/?tags=tony&page=3'
+def CrawlOnePage(target_url):
     try:
-        target_html = requests.get(target_url, headers=headers)             # 请求主网页或搜索后的网页
+        target_html = requests.get(target_url, headers=headers)             # 请求网页
         home_soup = BeautifulSoup(target_html.text, 'lxml')                 # 解析
         all_picts = home_soup.find_all('span', attrs={'class': 'thumb'})    # <span>中class属性值为'thumb'
     except:
         print(target_url + '加载失败')
         return -1
     print('一共找到 ' + str(len(all_picts)) + ' 张图片哦! ')
-    global home_url, thread_num
+    global home_url, thread_num, crawl_num
+    crawl_num = 100000                                              # 不作限制
     pict_ids = []
     hrefs = []
-    for pict in all_picts:                                          # 暂且只爬取第一页
+    for pict in all_picts:                                          # 只爬取第一页
         pict_id = pict['id'].replace('p', '')                       # 去掉标签中的id的p
         href = home_url + pict.find('a')['href']                    # 找出每一张图片的网页url
         pict_ids.append(pict_id)
         hrefs.append(href)
-        CrawlSingleImage(href, pict_id)
     executor = ThreadPoolExecutor(max_workers=thread_num)
     for res in executor.map(CrawlSingleImage, hrefs, pict_ids):
         res  # 等待全部完成
@@ -134,6 +134,40 @@ def ForeachPageAndCrawl(target_url):
         return 0
     else:
         return -1
+
+# 尽在搜索tag使用, 因为url是拼接而成的，默认在第一页, 因此支持换页
+# 搜索后tag的url如'https://chan.sankakucomplex.com/?tags=tony'
+def CrawPageUntilEnd(url):
+    page_str = r'&page='
+    page_num = 1
+    while(cur_num <= crawl_num and page_num <= 25):                  # 非会员最多访问25页
+        target_url = url + page_str + str(page_num)
+        print('正在访问 ' + target_url)
+        try:
+            target_html = requests.get(target_url, headers=headers)             # 请求网页
+            home_soup = BeautifulSoup(target_html.text, 'lxml')                 # 解析
+            all_picts = home_soup.find_all('span', attrs={'class': 'thumb'})    # <span>中class属性值为'thumb'
+        except:
+            print(target_url + '访问失败')
+            page_num += 1
+            continue
+        global home_url, thread_num
+        pict_ids = []
+        hrefs = []
+        for pict in all_picts:
+            pict_id = pict['id'].replace('p', '')                   # 去掉标签中的id的p
+            href = home_url + pict.find('a')['href']                # 找出每一张图片的网页url
+            pict_ids.append(pict_id)
+            hrefs.append(href)
+        executor = ThreadPoolExecutor(max_workers=thread_num)
+        for res in executor.map(CrawlSingleImage, hrefs, pict_ids):
+            res  # 等待全部完成
+        page_num += 1
+    if succ_num > 0 or skip_num > 0:
+        return 0
+    else:
+        return -1
+
 
 #  使用粘贴板的url爬取图片
 def ClipCrawl():
@@ -156,10 +190,10 @@ def ClipCrawl():
         return -1
     if re.compile(r'^(https://|http://)?chan.sankakucomplex.com/post/show/\d+$').search(input_url):   # 网址是图片类型
         crawl_num = 1
-        img_id = re.compile(r'\d+$').search(input_url).group()    # 根据url解析出id
+        img_id = re.compile(r'\d+$').search(input_url).group()      # 根据url解析出id
         return CrawlSingleImage(input_url, img_id)
     else:
-        return ForeachPageAndCrawl(input_url)
+        return CrawlOnePage(input_url)                              # 不清楚复制的url格式, 不作换页处理
 
 def CrawlById():
     target_url = id_url + crawl_id
@@ -169,7 +203,7 @@ def CrawlById():
 
 def CrawlByTag():
     target_url = tag_url + crawl_tag
-    return ForeachPageAndCrawl(target_url)
+    return CrawPageUntilEnd(target_url)
 
 def Help():
     print('''
