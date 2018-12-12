@@ -15,9 +15,10 @@ import getopt
 from concurrent.futures import ThreadPoolExecutor   # 线程池
 import datetime
 import configparser     # ini解析
+import threading        # 锁
 
 home_url = 'https://chan.sankakucomplex.com'
-save_path = r'D:\SankakuImage'      # 默认保存路径ti
+save_path = r'D:\SankakuImage'      # 默认保存路径
 id_url = 'https://chan.sankakucomplex.com/post/show/'
 tag_url = 'https://chan.sankakucomplex.com/?tags='
 log_path = r'.\SankakuSpiderERROR.log'      # log保存路径
@@ -36,6 +37,8 @@ default_ini = '''[setting]
 save_path={save_path}
 ;默认开启线程数
 thread_num={thread_num}
+;默认爬取图片数
+crawl_num={crawl_num}
 '''
 
 headers = {
@@ -47,17 +50,28 @@ crawl_tag = ''
 small_mode = False
 err_num = skip_num = succ_num = 0
 thread_num = 3                                                  # 默认3个线程
+crawl_num = 10                                                  # 默认爬10张图
+cur_num = 1                                                     # 正在爬取的图片序号
+mutex = threading.Lock()                                        # 多线程操控cur_num时加锁
 
 #  只爬取单张图片
 #  target_url为string, 如'https://chan.sankakucomplex.com/post/show/7356020'
 #  img_id为string, 如'7356020', 用于文件名字
 def CrawlSingleImage(target_url, img_id):
-    global headers, save_path, err_msg, skip_num, succ_num, err_num
+    global headers, save_path, err_msg, skip_num, succ_num, err_num, cur_num, crawl_num
+    mutex.acquire()     # 加锁访问cur_num
+    if cur_num > crawl_num:
+        mutex.release()
+        return 0        # 已爬够
+    index = cur_num     # 记录index且cur_num++
+    cur_num += 1
+    mutex.release()     # 解锁
+    print('准备爬取第 ' + str(index) + ' 张图片( ' + img_id + ' )')
     img_name = img_id
     if os.path.exists(os.path.join(save_path, img_name + '_big.jpg')) or \
         os.path.exists(os.path.join(save_path, img_name + '_small.jpg')):
         skip_num += 1
-        print(img_id + ' 图片已存在! 跳过')
+        print('第 ' + str(index) + ' 张图片( ' + img_id + ' )已存在! 跳过')
         return -2
 
     try:
@@ -66,16 +80,16 @@ def CrawlSingleImage(target_url, img_id):
         elem = target_soup.find('a', attrs={'id': 'image-link'})    # 找到图片所在标签
         src_url = 'https:'
         if not small_mode and 'sample' in elem['class']:            # 图片含有大图而且并非小图模式
-            print('正在下载 ' + img_id + ' 大图')
+            print('正在爬取第 ' + str(index) + ' 张图片( ' + img_id + ' ), 是大图哦')
             img_name += '_big.jpg'
             src_url += elem['href']                                 # href的url即为大图
         else:                                                       # 只能拉取小图
-            print('正在下载 ' + img_id + ' 小图')
+            print('正在爬取第 ' + str(index) + ' 张图片( ' + img_id + ' ), 是小图哦')
             img_name += '_small.jpg'
             src_url += elem.find('img')['src']                      # img中的src为小图
         src_html = requests.get(src_url, headers=headers)           # 打开图片
     except:                                                         # 出错写日志
-        print(img_id + '下载失败')
+        print('第 ' + str(index) + ' 张图片( ' + img_id + ' )下载失败')
         time_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         msg = err_msg.format(time=time_str, url=target_url, traceback=traceback.format_exc())
         log_file = open(log_path, 'a', encoding='utf-8')
@@ -90,7 +104,7 @@ def CrawlSingleImage(target_url, img_id):
         file.write(chunk)
     file.close()
     succ_num += 1
-    print(img_id + '保存成功! ')
+    print('第 ' + str(index) + ' 张图片( ' + img_id + ' )爬取成功')
     return 0
 
 #  遍历网站第一页, 对每张图片进行爬取 1.0
@@ -112,9 +126,10 @@ def ForeachPageAndCrawl(target_url):
         href = home_url + pict.find('a')['href']                    # 找出每一张图片的网页url
         pict_ids.append(pict_id)
         hrefs.append(href)
+        CrawlSingleImage(href, pict_id)
     executor = ThreadPoolExecutor(max_workers=thread_num)
     for res in executor.map(CrawlSingleImage, hrefs, pict_ids):
-        res     # 等待全部完成
+        res  # 等待全部完成
     if succ_num > 0 or skip_num > 0:
         return 0
     else:
@@ -122,6 +137,7 @@ def ForeachPageAndCrawl(target_url):
 
 #  使用粘贴板的url爬取图片
 def ClipCrawl():
+    global crawl_num
     input_url = pyperclip.paste()
     print('这是你复制的url “' + input_url + '"')
     if not input_url:
@@ -139,6 +155,7 @@ def ClipCrawl():
         ''')
         return -1
     if re.compile(r'^(https://|http://)?chan.sankakucomplex.com/post/show/\d+$').search(input_url):   # 网址是图片类型
+        crawl_num = 1
         img_id = re.compile(r'\d+$').search(input_url).group()    # 根据url解析出id
         return CrawlSingleImage(input_url, img_id)
     else:
@@ -146,6 +163,8 @@ def ClipCrawl():
 
 def CrawlById():
     target_url = id_url + crawl_id
+    global crawl_num
+    crawl_num = 1
     return CrawlSingleImage(target_url, crawl_id)
 
 def CrawlByTag():
@@ -156,15 +175,17 @@ def Help():
     print('''
 -h 或 --help 查看使用方法
 -s 爬图片时只爬小图
+-n <num> 爬n张图片, 搜id或者复制单张图片时无效
 --thread=<num> 开启<num>个线程爬取
--i <id> 直接爬取<id>的图片
--t <tag> 搜索<tag>标签并爬取图片
+-i <id> 直接爬取<id>的图片, 不能与-t同时使用
+-t <tag> 搜索<tag>标签并爬取图片, 不能与-i同时使用
     ''')
 
 # 在爬取前显示配置信息
 def ShowInfoBeforeCrawl():
     print('图片保存的路径是 ' + save_path)
-    print('爬取所用线程数为 ' + str(thread_num))
+    print('爬取所用线程数是 ' + str(thread_num))
+    print('爬取图片的数量是 ' + str(crawl_num))
     if small_mode:
         print('小图模式已启用')
     else:
@@ -178,7 +199,7 @@ def ShowInfoBeforeCrawl():
 def CreateDefaultIni():
     global ini_path, default_ini, save_path, thread_num
     ini_file = open(ini_path, 'w')
-    ini_file.write(default_ini.format(save_path=save_path, thread_num=thread_num))
+    ini_file.write(default_ini.format(save_path=save_path, thread_num=thread_num, crawl_num=crawl_num))
     ini_file.close()
     if not os.path.exists(save_path):
         os.mkdir(save_path)
@@ -186,7 +207,7 @@ def CreateDefaultIni():
 
 # 解析ini文件, 当ini文件不存在或是解析出问题, 重写成默认ini
 def ParseIni():
-    global save_path, thread_num
+    global save_path, thread_num, crawl_num
     if not os.path.exists(ini_path):
         print('ini文件不存在哦')
         CreateDefaultIni()
@@ -200,12 +221,14 @@ def ParseIni():
                 print('保存路径 ' + get_save_path + ' 不存在')
                 raise Exception()
             get_thread_num = int(config['setting']['thread_num'])
+            get_crawl_num = int(config['setting']['crawl_num'])
         except:                             # 不能读取或者内容出错
             print('ini文件有错误哦')
             CreateDefaultIni()
             return -1
         save_path = get_save_path
         thread_num = get_thread_num
+        crawl_num = get_crawl_num
         print('ini文件成功读取了呢')
         return 0
 
@@ -222,9 +245,9 @@ def AfterCrawl():
     os.startfile(save_path)             # 打开文件夹
 
 def ArgsHandle():
-    global small_mode, crawl_tag, crawl_id, thread_num
+    global small_mode, crawl_tag, crawl_id, thread_num, crawl_num
     try:
-        opts, args = getopt.getopt(sys.argv[1:], 'hsi:t:', ["help", "thread="])     #短参数为-h -s -i -t, 长参数为--help --thread= ,其中-i -t -n带参数
+        opts, args = getopt.getopt(sys.argv[1:], 'hsi:t:n:', ["help", "thread="])     #短参数为-h -s -i -t -n, 长参数为--help --thread= ,其中-i -t -n带参数
     except getopt.GetoptError:
         print("你输入的参数有错哦！")
         print('请加入-h查看使用方法吧！')
@@ -236,6 +259,8 @@ def ArgsHandle():
                 Help()
             elif cmd == '-s':
                 small_mode = True
+            elif cmd == '-n':
+                crawl_num = int(arg)
             elif cmd == '--thread':
                 thread_num = int(arg)
             elif cmd == '-i':
