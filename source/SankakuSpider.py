@@ -1,7 +1,7 @@
 # Copyright: Copyright(c) 2018
-# Created on 2018 - 12 - 13
+# Created on 2018 - 12 - 14
 # Author: HowsonLiu
-# Version 1.4
+# Version 1.5
 # Title: Sankaku爬虫
 
 import requests
@@ -17,6 +17,8 @@ import datetime
 import configparser     # ini解析
 import threading        # 锁
 import time             # sleep
+import random
+
 
 home_url = 'https://chan.sankakucomplex.com'
 save_path = r'D:\SankakuImage'      # 默认保存路径
@@ -27,7 +29,7 @@ ini_path = r'.\SankakuSpider.ini'           # ini保存路径
 
 err_msg = '''                       
 [ERROR] {time}
-下载 {url} 的图片失败
+加载 {url} 的页面失败
 {traceback}
 
 
@@ -42,8 +44,17 @@ thread_num={thread_num}
 crawl_num={crawl_num}
 '''
 
+user_agent_list = [
+    r'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.80 Safari/537.36',
+    r'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:63.0) Gecko/20100101 Firefox/63.0',
+    r'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.140 Safari/537.36 Edge/17.17134',
+    r'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.6; rv:2.0.1) Gecko/20100101 Firefox/4.0.1',
+    r'Mozilla/5.0 (Windows NT 10.0; WOW64; Trident/7.0; .NET4.0C; .NET4.0E; .NET CLR 2.0.50727; .NET CLR 3.0.30729; .NET CLR 3.5.30729; InfoPath.3; rv:11.0) like Gecko'
+]
+
 headers = {
-    'Referer': 'https://chan.sankakucomplex.com/post/show/7356020'  # 防盗链
+    'Referer': 'https://chan.sankakucomplex.com/post/show/7356020',     # 防盗链
+    'User-Agent': ''
 }
 
 crawl_id = ''
@@ -59,7 +70,7 @@ mutex = threading.Lock()                                        # 多线程操�
 #  target_url为string, 如'https://chan.sankakucomplex.com/post/show/7356020'
 #  img_id为string, 如'7356020', 用于文件名字
 def CrawlSingleImage(target_url, img_id):
-    global headers, save_path, err_msg, skip_num, succ_num, err_num, cur_num, crawl_num
+    global headers, save_path, err_msg, skip_num, succ_num, err_num, cur_num, crawl_num, user_agent_list
     mutex.acquire()     # 加锁访问cur_num
     if cur_num > crawl_num:
         mutex.release()
@@ -74,8 +85,9 @@ def CrawlSingleImage(target_url, img_id):
         skip_num += 1
         print('第 ' + str(index) + ' 张图片( ' + img_id + ' )已存在! 跳过')
         return -2
-    time.sleep(2)                   # 看下会不会被拒绝
+    time.sleep(random.randint(2, 10))                   # 随机等待时间
     try:
+        headers['User-Agent'] = user_agent_list[random.randint(0, len(user_agent_list))]    # 随机选取User-Agent
         target_html = requests.get(target_url, headers=headers)     # 请求图片网页
         target_soup = BeautifulSoup(target_html.text, 'lxml')       # 解析
         elem = target_soup.find('a', attrs={'id': 'image-link'})    # 找到图片所在标签
@@ -112,6 +124,8 @@ def CrawlSingleImage(target_url, img_id):
 #  target_url为string, 如'https://chan.sankakucomplex.com/?tags=tony&page=3'
 def CrawlOnePage(target_url):
     try:
+        global headers, user_agent_list
+        headers['User-Agent'] = user_agent_list[random.randint(0, len(user_agent_list))]  # 随机选取User-Agent
         target_html = requests.get(target_url, headers=headers)             # 请求网页
         home_soup = BeautifulSoup(target_html.text, 'lxml')                 # 解析
         all_picts = home_soup.find_all('span', attrs={'class': 'thumb'})    # <span>中class属性值为'thumb'
@@ -145,11 +159,18 @@ def CrawPageUntilEnd(url):
         target_url = url + page_str + str(page_num)
         print('正在访问 ' + target_url)
         try:
+            global headers, user_agent_list
+            headers['User-Agent'] = user_agent_list[random.randint(0, len(user_agent_list))]
             target_html = requests.get(target_url, headers=headers)             # 请求网页
             home_soup = BeautifulSoup(target_html.text, 'lxml')                 # 解析
             all_picts = home_soup.find_all('span', attrs={'class': 'thumb'})    # <span>中class属性值为'thumb'
         except:
             print(target_url + '访问失败')
+            time_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            msg = err_msg.format(time=time_str, url=target_url, traceback=traceback.format_exc())
+            log_file = open(log_path, 'a', encoding='utf-8')
+            log_file.write(msg)
+            log_file.close()
             page_num += 1
             continue
         global home_url, thread_num
