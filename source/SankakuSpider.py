@@ -87,7 +87,7 @@ def CrawlSingleImage(target_url, img_id):
         return -2
     time.sleep(random.randint(2, 10))                   # 随机等待时间
     try:
-        headers['User-Agent'] = user_agent_list[random.randint(0, len(user_agent_list))]    # 随机选取User-Agent
+        headers['User-Agent'] = user_agent_list[random.randint(0, len(user_agent_list)-1)]    # 随机选取User-Agent
         target_html = requests.get(target_url, headers=headers)     # 请求图片网页
         target_soup = BeautifulSoup(target_html.text, 'lxml')       # 解析
         elem = target_soup.find('a', attrs={'id': 'image-link'})    # 找到图片所在标签
@@ -125,7 +125,7 @@ def CrawlSingleImage(target_url, img_id):
 def CrawlOnePage(target_url):
     try:
         global headers, user_agent_list
-        headers['User-Agent'] = user_agent_list[random.randint(0, len(user_agent_list))]  # 随机选取User-Agent
+        headers['User-Agent'] = user_agent_list[random.randint(0, len(user_agent_list)-1)]  # 随机选取User-Agent
         target_html = requests.get(target_url, headers=headers)             # 请求网页
         home_soup = BeautifulSoup(target_html.text, 'lxml')                 # 解析
         all_picts = home_soup.find_all('span', attrs={'class': 'thumb'})    # <span>中class属性值为'thumb'
@@ -160,7 +160,7 @@ def CrawPageUntilEnd(url):
         print('正在访问 ' + target_url)
         try:
             global headers, user_agent_list
-            headers['User-Agent'] = user_agent_list[random.randint(0, len(user_agent_list))]
+            headers['User-Agent'] = user_agent_list[random.randint(0, len(user_agent_list)-1)]
             target_html = requests.get(target_url, headers=headers)             # 请求网页
             home_soup = BeautifulSoup(target_html.text, 'lxml')                 # 解析
             all_picts = home_soup.find_all('span', attrs={'class': 'thumb'})    # <span>中class属性值为'thumb'
