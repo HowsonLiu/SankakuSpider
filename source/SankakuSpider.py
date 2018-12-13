@@ -20,6 +20,7 @@ import time             # sleep
 import random
 
 
+
 home_url = 'https://chan.sankakucomplex.com'
 save_path = r'D:\SankakuImage'      # 默认保存路径
 id_url = 'https://chan.sankakucomplex.com/post/show/'
@@ -60,6 +61,7 @@ headers = {
 crawl_id = ''
 crawl_tag = ''
 small_mode = False
+mutithread = False                                              # 是否多线程环境
 err_num = skip_num = succ_num = 0
 thread_num = 3                                                  # 默认3个线程
 crawl_num = 10                                                  # 默认爬10张图
@@ -70,14 +72,21 @@ mutex = threading.Lock()                                        # 多线程操�
 #  target_url为string, 如'https://chan.sankakucomplex.com/post/show/7356020'
 #  img_id为string, 如'7356020', 用于文件名字
 def CrawlSingleImage(target_url, img_id):
-    global headers, save_path, err_msg, skip_num, succ_num, err_num, cur_num, crawl_num, user_agent_list
-    mutex.acquire()     # 加锁访问cur_num
-    if cur_num > crawl_num:
-        mutex.release()
-        return 0        # 已爬够
-    index = cur_num     # 记录index且cur_num++
-    cur_num += 1
-    mutex.release()     # 解锁
+    global headers, save_path, err_msg, skip_num, succ_num, err_num, cur_num, crawl_num, user_agent_list, mutithread
+    if mutithread:
+        mutex.acquire()     # 加锁访问cur_num
+        if cur_num > crawl_num:
+            mutex.release()
+            return 0        # 已爬够
+        index = cur_num     # 记录index且cur_num++
+        cur_num += 1
+        mutex.release()     # 解锁
+    else:                   # 不加锁
+        if cur_num > crawl_num:
+            mutex.release()
+            return 0
+        index = cur_num
+        cur_num += 1
     print('准备爬取第 ' + str(index) + ' 张图片( ' + img_id + ' )')
     img_name = img_id
     if os.path.exists(os.path.join(save_path, img_name + '_big.jpg')) or \
@@ -85,7 +94,8 @@ def CrawlSingleImage(target_url, img_id):
         skip_num += 1
         print('第 ' + str(index) + ' 张图片( ' + img_id + ' )已存在! 跳过')
         return -2
-    time.sleep(random.randint(2, 10))                   # 随机等待时间
+    if mutithread:
+        time.sleep(random.randint(2, 10))                   # 随机等待时间
     try:
         headers['User-Agent'] = user_agent_list[random.randint(0, len(user_agent_list)-1)]    # 随机选取User-Agent
         target_html = requests.get(target_url, headers=headers)     # 请求图片网页
@@ -193,7 +203,7 @@ def CrawPageUntilEnd(url):
 
 #  使用粘贴板的url爬取图片
 def ClipCrawl():
-    global crawl_num
+    global crawl_num, mutithread
     input_url = pyperclip.paste()
     print('这是你复制的url “' + input_url + '"')
     if not input_url:
@@ -212,6 +222,7 @@ def ClipCrawl():
         return -1
     if re.compile(r'^(https://|http://)?chan.sankakucomplex.com/post/show/\d+$').search(input_url):   # 网址是图片类型
         crawl_num = 1
+        mutithread = False
         img_id = re.compile(r'\d+$').search(input_url).group()      # 根据url解析出id
         return CrawlSingleImage(input_url, img_id)
     else:
@@ -219,8 +230,9 @@ def ClipCrawl():
 
 def CrawlById():
     target_url = id_url + crawl_id
-    global crawl_num
+    global crawl_num, mutithread
     crawl_num = 1
+    mutithread = False
     return CrawlSingleImage(target_url, crawl_id)
 
 def CrawlByTag():
@@ -239,6 +251,9 @@ def Help():
 
 # 在爬取前显示配置信息
 def ShowInfoBeforeCrawl():
+    global mutithread
+    if thread_num > 1:
+        mutithread = True
     print('图片保存的路径是 ' + save_path)
     print('爬取所用线程数是 ' + str(thread_num))
     print('爬取图片的数量是 ' + str(crawl_num))
@@ -319,6 +334,8 @@ def ArgsHandle():
                 crawl_num = int(arg)
             elif cmd == '--thread':
                 thread_num = int(arg)
+                if thread_num < 1:
+                    raise Exception
             elif cmd == '-i':
                 if conflict:
                     raise Exception
@@ -330,7 +347,7 @@ def ArgsHandle():
                 conflict = True
                 crawl_tag = arg
     except Exception:
-        print('你不能同时寻找id和tag哦！')
+        print('命令行参数有错哦')
         return -1
     return 0
 
